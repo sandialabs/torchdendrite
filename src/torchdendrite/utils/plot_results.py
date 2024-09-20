@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
+import numpy as np
+
 
 def plot_results(X, y, y_pred, path_to_plot, type="regression"):
-
     if type == "regression":
 
         if len(X.shape) > 1:
@@ -16,14 +17,13 @@ def plot_results(X, y, y_pred, path_to_plot, type="regression"):
         plt.savefig(path_to_plot, dpi=250)
 
     else:
-        
-        assert X.shape[-1] <= 2, "Can only plot classifications for upto 2 input features"
+
+        assert (
+                X.shape[-1] <= 2
+        ), "Can only plot classifications for upto 2 input features"
 
         for c in np.unique(y_pred):
-            selected = (y_pred == c)
-            plt.scatter(X[selected,0], X[selected,1], label=c)
-            
+            selected = y_pred == c
+            plt.scatter(X[selected, 0], X[selected, 1], label=c)
+
         plt.savefig(path_to_plot, dpi=250)
-            
-        
-        

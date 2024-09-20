@@ -1,150 +1,175 @@
+import argparse
 import os
+import warnings
+
 import numpy as np
 import torch
 import torch.nn as nn
-import argparse
-from tqdm import tqdm
-from torch import optim
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision import datasets
-from torchvision.models import resnet50
 from accelerate import Accelerator
-from transformers import get_cosine_schedule_with_warmup
+from torch.utils.data import DataLoader
 from torchmetrics import Accuracy
-from utils import LocalLogger
-from models.modules import DendriticLinear
+from torchvision import datasets
+from torchvision import transforms
+from torchvision.models import resnet50
+from tqdm import tqdm
 
-import warnings 
+from torchdendrite.models.modules import DendriticLinear
+
 warnings.filterwarnings("ignore")
 
 ### Parse Training Arguments ###
-parser = argparse.ArgumentParser(description="Arguments for Image Classification Training")
-parser.add_argument("--experiment_name", 
-                    help="Name of Experiment being Launched", 
-                    required=True, 
-                    type=str)
-parser.add_argument("--path_to_data", 
-                    help="Path to ImageNet root folder which should contain \train and \validation folders", 
-                    required=True, 
-                    type=str)
-parser.add_argument("--working_directory", 
-                    help="Working Directory where checkpoints and logs are stored, inside a \
-                    folder labeled by the experiment name", 
-                    required=True, 
-                    type=str)
-parser.add_argument("--num_classes",
-                    help="Number of output classes for Image Classification",
-                    default=1000,
-                    type=int)
-parser.add_argument("--epochs",
-                    help="Number of Epochs to Train",
-                    default=90, 
-                    type=int)
-parser.add_argument("--save_checkpoint_interval", 
-                    help="After how many epochs to save model checkpoints",
-                    default=10,
-                    type=int)
-parser.add_argument("--batch_size", 
-                    help="Effective batch size. If split_batches is false, batch size is \
-                         multiplied by number of GPUs utilized ", 
-                    default=256, 
-                    type=int)
-parser.add_argument("--gradient_accumulation_steps", 
-                    help="Number of Gradient Accumulation Steps for Training", 
-                    default=1, 
-                    type=int)
-parser.add_argument("--learning_rate", 
-                    help="Starting Learning Rate for StepLR", 
-                    default=0.1,
-                    type=float)
-parser.add_argument("--weight_decay", 
-                    help="Weight decay for optimizer", 
-                    default=1e-4, 
-                    type=float)
-parser.add_argument("--momentum",
-                    help="Momentum parameter for SGD optimizer",
-                    default=0.9, 
-                    type=float)
-parser.add_argument("--step_lr_decay",
-                    help="Decay for Step LR", 
-                    default=0.1, 
-                    type=float)
-parser.add_argument("--lr_step_size",
-                    help="Number of epochs for every step", 
-                    default=30, 
-                    type=int)
-parser.add_argument("--warmup_epochs", 
-                     help="Number of learning rate warmup iterations on Cosine Scheduler", 
-                     default=5,
-                     type=int)
-parser.add_argument("--lr_warmup_start_factor",
-                    help="Learning rate start factor (i.e if learning rate is 0.1 and start factor is 0.01, then lr warm-up from 0.1*0.01 to 0.1)",
-                    default=0.1, 
-                    type=float)
-parser.add_argument("--bias_weight_decay",
-                    help="Apply weight decay to bias",
-                    default=False, 
-                    action=argparse.BooleanOptionalAction)
-parser.add_argument("--norm_weight_decay",
-                    help="Apply weight decay to normalization weight and bias",
-                    default=False, 
-                    action=argparse.BooleanOptionalAction)
-parser.add_argument("--max_grad_norm", 
-                    help="Maximum norm for gradient clipping", 
-                    default=1.0, 
-                    type=float)
-parser.add_argument("--img_size", 
-                    help="Width and Height of Images passed to model", 
-                    default=224, 
-                    type=int)
-parser.add_argument("--num_workers", 
-                    help="Number of workers for DataLoader", 
-                    default=32, 
-                    type=int)
-parser.add_argument("--resume_from_checkpoint", 
-                    help="Checkpoint folder for model to resume training from, inside the experiment folder", 
-                    default=None, 
-                    type=str)
+parser = argparse.ArgumentParser(
+    description="Arguments for Image Classification Training"
+)
+parser.add_argument(
+    "--experiment_name",
+    help="Name of Experiment being Launched",
+    required=True,
+    type=str,
+)
+parser.add_argument(
+    "--path_to_data",
+    help="Path to ImageNet root folder which should contain \train and \validation folders",
+    required=True,
+    type=str,
+)
+parser.add_argument(
+    "--working_directory",
+    help="Working Directory where checkpoints and logs are stored, inside a \
+                    folder labeled by the experiment name",
+    required=True,
+    type=str,
+)
+parser.add_argument(
+    "--num_classes",
+    help="Number of output classes for Image Classification",
+    default=1000,
+    type=int,
+)
+parser.add_argument("--epochs", help="Number of Epochs to Train", default=90, type=int)
+parser.add_argument(
+    "--save_checkpoint_interval",
+    help="After how many epochs to save model checkpoints",
+    default=10,
+    type=int,
+)
+parser.add_argument(
+    "--batch_size",
+    help="Effective batch size. If split_batches is false, batch size is \
+                         multiplied by number of GPUs utilized ",
+    default=256,
+    type=int,
+)
+parser.add_argument(
+    "--gradient_accumulation_steps",
+    help="Number of Gradient Accumulation Steps for Training",
+    default=1,
+    type=int,
+)
+parser.add_argument(
+    "--learning_rate", help="Starting Learning Rate for StepLR", default=0.1, type=float
+)
+parser.add_argument(
+    "--weight_decay", help="Weight decay for optimizer", default=1e-4, type=float
+)
+parser.add_argument(
+    "--momentum", help="Momentum parameter for SGD optimizer", default=0.9, type=float
+)
+parser.add_argument(
+    "--step_lr_decay", help="Decay for Step LR", default=0.1, type=float
+)
+parser.add_argument(
+    "--lr_step_size", help="Number of epochs for every step", default=30, type=int
+)
+parser.add_argument(
+    "--warmup_epochs",
+    help="Number of learning rate warmup iterations on Cosine Scheduler",
+    default=5,
+    type=int,
+)
+parser.add_argument(
+    "--lr_warmup_start_factor",
+    help="Learning rate start factor (i.e if learning rate is 0.1 and start factor is 0.01, then lr warm-up from 0.1*0.01 to 0.1)",
+    default=0.1,
+    type=float,
+)
+parser.add_argument(
+    "--bias_weight_decay",
+    help="Apply weight decay to bias",
+    default=False,
+    action=argparse.BooleanOptionalAction,
+)
+parser.add_argument(
+    "--norm_weight_decay",
+    help="Apply weight decay to normalization weight and bias",
+    default=False,
+    action=argparse.BooleanOptionalAction,
+)
+parser.add_argument(
+    "--max_grad_norm",
+    help="Maximum norm for gradient clipping",
+    default=1.0,
+    type=float,
+)
+parser.add_argument(
+    "--img_size",
+    help="Width and Height of Images passed to model",
+    default=224,
+    type=int,
+)
+parser.add_argument(
+    "--num_workers", help="Number of workers for DataLoader", default=32, type=int
+)
+parser.add_argument(
+    "--resume_from_checkpoint",
+    help="Checkpoint folder for model to resume training from, inside the experiment folder",
+    default=None,
+    type=str,
+)
 args = parser.parse_args()
+
 
 class DendritePoolResNet50(nn.Module):
     def __init__(self):
         super().__init__()
         self.model = resnet50()
-        self.pool = DendriticLinear(49,1, resolution=10, dt=0.01)
+        self.pool = DendriticLinear(49, 1, resolution=10, dt=0.01)
 
     def forward(self, x):
-        prelayers = self.model.maxpool(self.model.relu(self.model.bn1(self.model.conv1(x))))
-        prelayers = self.model.layer4(self.model.layer3(self.model.layer2(self.model.layer1(prelayers))))
+        prelayers = self.model.maxpool(
+            self.model.relu(self.model.bn1(self.model.conv1(x)))
+        )
+        prelayers = self.model.layer4(
+            self.model.layer3(self.model.layer2(self.model.layer1(prelayers)))
+        )
 
         batch, channels, height, width = prelayers.shape
-        prelayers = prelayers.reshape(batch*channels, height*width)
+        prelayers = prelayers.reshape(batch * channels, height * width)
         pooled = self.pool(prelayers).reshape(batch, channels)
 
         out = model.model.fc(pooled)
         return out
 
+
 class LocalLogger:
-    def __init__(self,
-                 path_to_folder, 
-                 filename="train_log.pkl"):
+    def __init__(self, path_to_folder, filename="train_log.pkl"):
 
         self.path_to_log_folder = path_to_folder
         self.path_to_file = os.path.join(self.path_to_log_folder, filename)
         self.log_exists = os.path.isfile(self.path_to_file)
-
 
         if self.log_exists:
             with open(self.path_to_file, "rb") as f:
                 self.logger = pickle.load(f)
 
         else:
-            self.logger = {"steps": [], 
-                           "train_loss": [], 
-                           "train_acc": [], 
-                           "val_loss": [], 
-                           "val_acc": []}
+            self.logger = {
+                "steps": [],
+                "train_loss": [],
+                "train_acc": [],
+                "val_loss": [],
+                "val_acc": [],
+            }
 
     def log(self, steps, train_loss, train_acc, val_loss, val_acc):
         self.logger["steps"].append(steps)
@@ -155,25 +180,32 @@ class LocalLogger:
 
         with open(self.path_to_file, "wb") as f:
             pickle.dump(self.logger, f)
-            
+
+
 ### Init Accelerator ###
 path_to_experiment = os.path.join(args.working_directory, args.experiment_name)
-accelerator = Accelerator(project_dir=path_to_experiment,
-                          gradient_accumulation_steps=args.gradient_accumulation_steps,
-                          log_with="wandb")
+accelerator = Accelerator(
+    project_dir=path_to_experiment,
+    gradient_accumulation_steps=args.gradient_accumulation_steps,
+    log_with="wandb",
+)
 
 ### Init Logger ###
 local_logger = LocalLogger(path_to_experiment)
 
 ### Weights and Biases Logger ###
-experiment_config = {"epochs": args.epochs,
-                     "effective_batch_size": args.batch_size*accelerator.num_processes, 
-                     "learning_rate": args.learning_rate,
-                     "warmup_epochs": args.warmup_epochs}
+experiment_config = {
+    "epochs": args.epochs,
+    "effective_batch_size": args.batch_size * accelerator.num_processes,
+    "learning_rate": args.learning_rate,
+    "warmup_epochs": args.warmup_epochs,
+}
 accelerator.init_trackers(args.experiment_name, config=experiment_config)
 
 ### Define Accuracy Metric ###
-accuracy_fn = Accuracy(task="multiclass", num_classes=args.num_classes).to(accelerator.device)
+accuracy_fn = Accuracy(task="multiclass", num_classes=args.num_classes).to(
+    accelerator.device
+)
 
 ### Load Model ###
 model = resnet50()
@@ -186,19 +218,19 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 train_transforms = transforms.Compose(
     [
-        transforms.RandomResizedCrop(size=(args.img_size,args.img_size)), 
+        transforms.RandomResizedCrop(size=(args.img_size, args.img_size)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ]
 )
 
 test_transform = transforms.Compose(
     [
-        transforms.Resize((256,256)), 
+        transforms.Resize((256, 256)),
         transforms.CenterCrop((args.img_size, args.img_size)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ]
 )
 
@@ -208,9 +240,21 @@ path_to_valid_data = os.path.join(args.path_to_data, "validation")
 trainset = datasets.ImageFolder(path_to_train_data, transform=train_transforms)
 testset = datasets.ImageFolder(path_to_valid_data, transform=test_transform)
 
-mini_batchsize = args.batch_size // args.gradient_accumulation_steps 
-trainloader = DataLoader(trainset, batch_size=mini_batchsize, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-testloader = DataLoader(testset, batch_size=mini_batchsize, shuffle=True, num_workers=args.num_workers, pin_memory=True)
+mini_batchsize = args.batch_size // args.gradient_accumulation_steps
+trainloader = DataLoader(
+    trainset,
+    batch_size=mini_batchsize,
+    shuffle=True,
+    num_workers=args.num_workers,
+    pin_memory=True,
+)
+testloader = DataLoader(
+    testset,
+    batch_size=mini_batchsize,
+    shuffle=True,
+    num_workers=args.num_workers,
+    pin_memory=True,
+)
 
 ### Define Loss Function ###
 loss_fn = nn.CrossEntropyLoss()
@@ -223,7 +267,7 @@ if (not args.bias_weight_decay) or (not args.norm_weight_decay):
     for name, param in model.named_parameters():
 
         if param.requires_grad:
-            
+
             ### Dont have Weight decay on any bias parameter (including norm) ###
             if "bias" in name and not args.bias_weight_decay:
                 no_weight_decay_params.append(param)
@@ -237,18 +281,30 @@ if (not args.bias_weight_decay) or (not args.norm_weight_decay):
 
     optimizer_group = [
         {"params": weight_decay_params, "weight_decay": args.weight_decay},
-        {"params": no_weight_decay_params, "weight_decay": 0.0}
+        {"params": no_weight_decay_params, "weight_decay": 0.0},
     ]
-    optimizer = torch.optim.SGD(optimizer_group, lr=args.learning_rate, momentum=args.momentum)
+    optimizer = torch.optim.SGD(
+        optimizer_group, lr=args.learning_rate, momentum=args.momentum
+    )
 
 else:
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=args.momentum)
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=args.learning_rate, momentum=args.momentum
+    )
 
 ### Define Scheduler ###
 total_training_steps = len(trainloader) * args.epochs
-main_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.step_lr_decay)
-warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=args.lr_warmup_start_factor, total_iters=args.warmup_epochs)
-scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[args.warmup_epochs])
+main_scheduler = torch.optim.lr_scheduler.StepLR(
+    optimizer, step_size=args.lr_step_size, gamma=args.step_lr_decay
+)
+warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+    optimizer, start_factor=args.lr_warmup_start_factor, total_iters=args.warmup_epochs
+)
+scheduler = torch.optim.lr_scheduler.SequentialLR(
+    optimizer,
+    schedulers=[warmup_scheduler, main_scheduler],
+    milestones=[args.warmup_epochs],
+)
 
 ### Prepare Everything ###
 model, optimizer, trainloader, testloader, scheduler = accelerator.prepare(
@@ -269,7 +325,7 @@ all_train_losses, all_test_losses = [], []
 all_train_accs, all_test_accs = [], []
 
 for epoch in range(starting_checkpoint, args.epochs):
-    
+
     accelerator.print(f"Training Epoch {epoch}")
 
     ### Storage for Everything ###
@@ -277,21 +333,23 @@ for epoch in range(starting_checkpoint, args.epochs):
     test_loss = []
     train_acc = []
     test_acc = []
-    accumulated_loss = 0 
+    accumulated_loss = 0
     accumulated_accuracy = 0
 
     ### Training Progress Bar ###
-    progress_bar = tqdm(range(len(trainloader)//args.gradient_accumulation_steps), 
-                        disable=not accelerator.is_local_main_process)
+    progress_bar = tqdm(
+        range(len(trainloader) // args.gradient_accumulation_steps),
+        disable=not accelerator.is_local_main_process,
+    )
 
     model.train()
     for images, targets in trainloader:
 
         ### Move Data to Correct GPU ###
         images, targets = images.to(accelerator.device), targets.to(accelerator.device)
-        
+
         with accelerator.accumulate(model):
-            
+
             ### Pass Through Model ###
             pred = model(images)
 
@@ -310,15 +368,13 @@ for epoch in range(starting_checkpoint, args.epochs):
             ### Clip Gradients ###
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-            
+
             ### Update Model ###
             optimizer.step()
             optimizer.zero_grad(set_to_none=True)
 
-
         ### Only when GPUs are being synchronized (When all the grad accumulation is done) store metrics ###
         if accelerator.sync_gradients:
-            
             ### Gather Metrics Across GPUs ###
             loss_gathered = accelerator.gather_for_metrics(accumulated_loss)
             accuracy_gathered = accelerator.gather_for_metrics(accumulated_accuracy)
@@ -333,9 +389,10 @@ for epoch in range(starting_checkpoint, args.epochs):
             ### Iterate Progress Bar ###
             progress_bar.update(1)
 
-
     model.eval()
-    for images, targets in tqdm(testloader, disable=not accelerator.is_local_main_process):
+    for images, targets in tqdm(
+            testloader, disable=not accelerator.is_local_main_process
+    ):
         images, targets = images.to(accelerator.device), targets.to(accelerator.device)
         with torch.no_grad():
             pred = model(images)
@@ -354,7 +411,7 @@ for epoch in range(starting_checkpoint, args.epochs):
         ### Store Current Iteration Error ###
         test_loss.append(torch.mean(loss_gathered).item())
         test_acc.append(torch.mean(accuracy_gathered).item())
-    
+
     epoch_train_loss = np.mean(train_loss)
     epoch_test_loss = np.mean(test_loss)
     epoch_train_acc = np.mean(train_acc)
@@ -365,24 +422,35 @@ for epoch in range(starting_checkpoint, args.epochs):
     all_train_accs.append(epoch_train_acc)
     all_test_accs.append(epoch_test_acc)
 
-    accelerator.print(f"Training Accuracy: ", epoch_train_acc, "Training Loss:", epoch_train_loss)
-    accelerator.print(f"Testing Accuracy: ", epoch_test_acc, "Testing Loss:", epoch_test_loss)
+    accelerator.print(
+        f"Training Accuracy: ", epoch_train_acc, "Training Loss:", epoch_train_loss
+    )
+    accelerator.print(
+        f"Testing Accuracy: ", epoch_test_acc, "Testing Loss:", epoch_test_loss
+    )
 
     ### Log with Local Logger ###
     if accelerator.is_main_process:
-        local_logger.log(epoch=epoch, 
-                         train_loss=epoch_train_loss,
-                         test_loss=epoch_test_loss, 
-                         train_acc=epoch_train_acc,
-                         test_acc=epoch_test_acc)
-        
+        local_logger.log(
+            epoch=epoch,
+            train_loss=epoch_train_loss,
+            test_loss=epoch_test_loss,
+            train_acc=epoch_train_acc,
+            test_acc=epoch_test_acc,
+        )
+
     ### Log with Weights and Biases ###
-    accelerator.log({"learning_rate": scheduler.get_last_lr()[0],
-                     "training_loss": epoch_train_loss,
-                     "testing_loss": epoch_test_loss, 
-                     "training_acc": epoch_train_acc, 
-                     "testing_acc": epoch_test_acc}, step=epoch)
-    
+    accelerator.log(
+        {
+            "learning_rate": scheduler.get_last_lr()[0],
+            "training_loss": epoch_train_loss,
+            "testing_loss": epoch_test_loss,
+            "training_acc": epoch_train_acc,
+            "testing_acc": epoch_test_acc,
+        },
+        step=epoch,
+    )
+
     ### Iterate Learning Rate Scheduler ###
     scheduler.step()
 

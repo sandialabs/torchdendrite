@@ -4,6 +4,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class SimpleDendConv(nn.Module):
+    """
+    A simple convolutional neural network using dendritic convolutional and linear layers.
+
+    This network is designed for processing input images and classifying them into 10 classes.
+    It consists of two convolutional layers, each followed by a max pooling layer, and two fully connected layers.
+
+    Args:
+        resolution (int, optional): The resolution of the dendritic layers. Default is 30.
+        dt (float, optional): The time step for the dendritic layers. Default is 0.001.
+        in_channels (int, optional): The number of input channels. Default is 1.
+    """
+
     def __init__(self, resolution=30, dt=0.001, in_channels=1):
         super(SimpleDendConv,self).__init__()
         self.conv1 = DendriticConv2d(in_channels,10,kernel_size=5,stride=1, resolution=resolution, dt=dt)
@@ -11,18 +23,38 @@ class SimpleDendConv(nn.Module):
         self.pool = nn.MaxPool2d(kernel_size=2,stride=2) #2x2 maxpool
         self.fc1 = DendriticLinear(4*4*10,100, resolution=resolution, dt=dt)
         self.fc2 = DendriticLinear(100,10, resolution=resolution, dt=dt)
-      
+
     def forward(self,x):
+        """
+        Forward pass of the network.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor after passing through the network.
+        """
         x = F.relu(self.conv1(x)) #24x24x10
         x = self.pool(x) #12x12x10
         x = F.relu(self.conv2(x)) #8x8x10
-        x = self.pool(x) #4x4x10    
+        x = self.pool(x) #4x4x10
         x = x.view(-1, 4*4*10) #flattening
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
 
 class CifarDendConv(nn.Module):
+    """
+    A convolutional neural network designed for CIFAR-10 dataset classification using dendritic convolutional and linear layers.
+
+    This network consists of two convolutional layers, each followed by a max pooling layer, and three fully connected layers.
+
+    Args:
+        resolution (int, optional): The resolution of the dendritic layers. Default is 30.
+        dt (float, optional): The time step for the dendritic layers. Default is 0.001.
+        in_channels (int, optional): The number of input channels. Default is 3.
+    """
+
     def __init__(self, resolution=30, dt=0.001, in_channels=3):
         super().__init__()
         self.conv1 = DendriticConv2d(in_channels,6,kernel_size=5,stride=1, resolution=resolution, dt=dt)
@@ -33,6 +65,15 @@ class CifarDendConv(nn.Module):
         self.fc3 = DendriticLinear(84, 10, resolution=resolution, dt=dt)
 
     def forward(self, x):
+        """
+        Forward pass of the network.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor after passing through the network.
+        """
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = torch.flatten(x,1)
@@ -49,11 +90,14 @@ class ResidualBlock(nn.Module):
         along with Batch Normalization and ReLU. If a downsample is needed, it will also accept a downsampling convolution
         that will ensure our identity is equal to the output before returning. 
         
-        in_planes: Expected Number of Input Planes
-        planes: Number of Planes to Map to in the Intermediate before expansion
-        downsample: Pass in a downsampling function to ensure Identity shape matches X
-        middle_conv_stride: The first block in every set of N blocks has a stride of 2 on the second convolution
-        residual: Turn the residual sum on or off
+        Args:
+            in_planes (int): Expected number of input planes.
+            planes (int): Number of planes to map to in the intermediate before expansion.
+            downsample (callable, optional): Pass in a downsampling function to ensure identity shape matches x. Default is None.
+            middle_conv_stride (int, optional): The first block in every set of N blocks has a stride of 2 on the second convolution. Default is 1.
+            resolution (int, optional): The resolution of the dendritic layers. Default is 30.
+            residual (bool, optional): Turn the residual sum on or off. Default is True.
+            dt (float, optional): The time step for the dendritic layers. Default is 0.001.
         """
         super(ResidualBlock, self).__init__()
         ### Set Convolutional Layers ###
@@ -72,6 +116,15 @@ class ResidualBlock(nn.Module):
         self.residual = residual
         
     def forward(self, x):
+        """
+        Forward pass of the residual block.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor after passing through the residual block.
+        """
         identity = x # Store the identity function
 
         x = self.conv1(x)
@@ -134,6 +187,17 @@ class DendResNet(nn.Module):
         self.fc = DendriticLinear(512*4, num_classes, resolution=resolution, dt=dt)
     
     def _make_layers(self, num_residual_blocks, planes, stride):
+        """
+        Creates a sequence of residual blocks for the network.
+
+        Args:
+            num_residual_blocks (int): Number of residual blocks to create.
+            planes (int): Number of planes to map to in the intermediate before expansion.
+            stride (int): Stride for the first block in the sequence.
+
+        Returns:
+            nn.Sequential: A sequential container of residual blocks.
+        """
         downsample = None # Initialize downsampling as None
         layers = nn.ModuleList() # Create a Module list to store all our convolutions
         
@@ -173,6 +237,15 @@ class DendResNet(nn.Module):
         
 
     def forward(self, x):
+        """
+        Forward pass of the DendResNet model.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The output tensor after passing through the network.
+        """
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

@@ -1,16 +1,16 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from accelerate import Accelerator
 from torch import optim
 from torch.utils.data import DataLoader
-from torchvision import transforms
+from torchmetrics import Accuracy
 from torchvision import datasets
+from torchvision import transforms
 from tqdm import tqdm
-from models import DendResNet
-from accelerate import Accelerator
 from transformers import get_cosine_schedule_with_warmup
 
-from torchmetrics import Accuracy
+from torchdendrite.models import DendResNet
 
 EPOCHS = 50
 GRADIENT_ACCUM_STEPS = 8
@@ -23,19 +23,26 @@ accelerator = Accelerator(gradient_accumulation_steps=GRADIENT_ACCUM_STEPS)
 accuracy_fn = Accuracy(task="multiclass", num_classes=10).to(accelerator.device)
 
 ### Load Model ###
-model = DendResNet([2,2,2,2], num_channels=1, resolution=10, num_classes=10).to(accelerator.device)
-
-### Load Dataset ###
-transform = transforms.Compose(
-    [transforms.Resize((32,32)),
-    transforms.ToTensor()]
+model = DendResNet([2, 2, 2, 2], num_channels=1, resolution=10, num_classes=10).to(
+    accelerator.device
 )
 
-mini_batchsize = BATCH_SIZE // GRADIENT_ACCUM_STEPS 
-trainset = datasets.MNIST(root="datasets", train=True, transform=transform, download=True)
-testset = datasets.MNIST(root="datasets", train=False, transform=transform, download=True)
-trainloader = DataLoader(trainset, batch_size=mini_batchsize, shuffle=True, num_workers=8, pin_memory=True)
-testloader = DataLoader(testset, batch_size=mini_batchsize, shuffle=True, num_workers=8, pin_memory=True)
+### Load Dataset ###
+transform = transforms.Compose([transforms.Resize((32, 32)), transforms.ToTensor()])
+
+mini_batchsize = BATCH_SIZE // GRADIENT_ACCUM_STEPS
+trainset = datasets.MNIST(
+    root="datasets", train=True, transform=transform, download=True
+)
+testset = datasets.MNIST(
+    root="datasets", train=False, transform=transform, download=True
+)
+trainloader = DataLoader(
+    trainset, batch_size=mini_batchsize, shuffle=True, num_workers=8, pin_memory=True
+)
+testloader = DataLoader(
+    testset, batch_size=mini_batchsize, shuffle=True, num_workers=8, pin_memory=True
+)
 
 ### Define Loss Function ###
 loss_fn = nn.CrossEntropyLoss()
@@ -45,9 +52,9 @@ optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
 ### Define Scheduler ###
 total_training_steps = len(trainloader) * EPOCHS
-scheduler = get_cosine_schedule_with_warmup(optimizer, 
-                                            num_warmup_steps=500, 
-                                            num_training_steps=total_training_steps)
+scheduler = get_cosine_schedule_with_warmup(
+    optimizer, num_warmup_steps=500, num_training_steps=total_training_steps
+)
 
 ### Prepare Everything ###
 model, optimizer, trainloader, testloader, scheduler = accelerator.prepare(
@@ -65,14 +72,14 @@ for epoch in range(EPOCHS):
     test_acc = []
 
     model.train()
-    accumulated_loss = 0 
+    accumulated_loss = 0
     accumulated_accuracy = 0
-    for images, targets in tqdm(trainloader, disable= not accelerator.is_main_process):
+    for images, targets in tqdm(trainloader, disable=not accelerator.is_main_process):
 
         ### Move Data to Correct GPU ###
         images, targets = images.to(accelerator.device), targets.to(accelerator.device)
         with accelerator.accumulate(model):
-            
+
             ### Pass Through Model ###
             pred = model(images)
 
@@ -92,7 +99,6 @@ for epoch in range(EPOCHS):
             optimizer.zero_grad()
 
         if accelerator.sync_gradients:
-
             ### Gather Metrics Across GPUs ###
             loss_gathered = accelerator.gather_for_metrics(accumulated_loss)
             accuracy_gathered = accelerator.gather_for_metrics(accumulated_accuracy)
@@ -103,7 +109,6 @@ for epoch in range(EPOCHS):
 
             ### Reset Accumulated for next Accumulation ###
             accumulated_loss, accumulated_accuracy = 0, 0
-
 
     model.eval()
 
@@ -126,7 +131,7 @@ for epoch in range(EPOCHS):
             ### Store Current Iteration Error ###
             test_loss.append(torch.mean(loss_gathered).item())
             test_acc.append(torch.mean(accuracy_gathered).item())
-        
+
     epoch_train_loss = np.mean(train_loss)
     epoch_test_loss = np.mean(test_loss)
     epoch_train_acc = np.mean(train_acc)
@@ -137,6 +142,9 @@ for epoch in range(EPOCHS):
     all_train_accs.append(epoch_train_acc)
     all_test_accs.append(epoch_test_acc)
 
-    accelerator.print(f"Training Accuracy: ", epoch_train_acc, "Training Loss:", epoch_train_loss)
-    accelerator.print(f"Testing Accuracy: ", epoch_test_acc, "Testing Loss:", epoch_test_loss)
-    
+    accelerator.print(
+        f"Training Accuracy: ", epoch_train_acc, "Training Loss:", epoch_train_loss
+    )
+    accelerator.print(
+        f"Testing Accuracy: ", epoch_test_acc, "Testing Loss:", epoch_test_loss
+    )

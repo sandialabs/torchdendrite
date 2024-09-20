@@ -34,9 +34,6 @@ use it with SNNtorch.
 When training models with dendrites, it is recommended to use the Adam optimizer as it tends to perform better with
 dendritic layers.
 
-## Integrate with your tools
-
-## Authors and acknowledgment
 
 ## License
 

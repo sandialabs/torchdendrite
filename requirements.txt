@@ -1,0 +1,8 @@
+numpy~=2.1.0
+torchvision~=0.19.1
+tqdm~=4.66.5
+transformers~=4.44.2
+snntorch~=0.9.1
+pytest~=8.3.3
+torch
+scikit-learn

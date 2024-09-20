@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "torchdendrite"
+dynamic = ["version"]
+description = 'Dendrite enabled models for PyTorch and SNNTorch'
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [{ name = "Mark Plagge", email = "mplagge@sandia.gov" }, { name = "Priyam Mazumdar", email = "priyamm2@illinois.edu" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = ["torch", "torchvision", "snntorch", "torchmetrics", "numpy~=2.1.0",
+    "matplotlib", "tqdm", "transformers", "scikit-learn"]
+
+[project.urls]
+
+Documentation = "https://github.com/Mark Plagge/torchdendrite#readme"
+Issues = "https://github.com/Mark Plagge/torchdendrite/issues"
+Source = "https://github.com/Mark Plagge/torchdendrite"
+[tool.hatch.version]
+path = "src/torchdendrite/__about__.py"
+[tool.hatch.envs.test]
+extra-dependencies = ["pytest"]
+[tool.hatch.envs.types]
+extra-dependencies = ["mypy>=1.0.0"]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/torchdendrite tests}"
+
+[tool.coverage.run]
+source_pkgs = ["torchdendrite", "tests"]
+branch = true
+parallel = true
+omit = ["src/torchdendrite/__about__.py"]
+
+[tool.coverage.paths]
+torchdendrite = ["src/torchdendrite", "*/torchdendrite/src/torchdendrite"]
+tests = ["tests", "*/torchdendrite/tests"]
+
+[tool.coverage.report]
+exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
+
